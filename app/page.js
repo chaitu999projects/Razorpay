@@ -1,9 +1,16 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Home() {
-  const [amount, setAmount] = useState(0);
+  const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const script = document.createElement("script");
+    script.src = "https://sdk.cashfree.com/js/v3/cashfree.js";
+    script.async = true;
+    document.body.appendChild(script);
+  }, []);
 
   const handlePayment = async () => {
     if (!amount || amount <= 0) {
@@ -13,59 +20,45 @@ export default function Home() {
 
     setLoading(true);
     try {
+      // Create order on backend
       const res = await fetch("/api/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount }),
       });
 
-      const { order } = await res.json();
+      const data = await res.json();
+      if (!data.orderToken || !data.orderId) throw new Error("Order failed");
 
-      const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        amount: order.amount,
-        currency: "INR",
-        name: "My Website",
-        description: "Test Transaction",
-        order_id: order.id,
-        handler: async (response) => {
-          const verify = await fetch("/api/verify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(response),
-          });
+      // Initialize Cashfree checkout
+      const cashfree = new window.Cashfree({ mode: "sandbox" });
+      const result = await cashfree.pay(data.orderToken);
 
-          const result = await verify.json();
-          alert(result.message);
-        },
-        prefill: {
-          name: "Chaitanya",
-          email: "test@example.com",
-          contact: "9999999999",
-        },
-        theme: {
-          color: "#2563eb", // Tailwind blue-600
-        },
-      };
+      // Verify order on backend
+      const verifyRes = await fetch("/api/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: data.orderId }),
+      });
 
-      const paymentObject = new window.Razorpay(options);
-      paymentObject.open();
-    } catch (err) {
-      console.error(err);
-      alert("Something went wrong. Please try again.");
+      const verification = await verifyRes.json();
+      alert(verification.message);
+    } catch (error) {
+      console.error(error);
+      alert("Something went wrong!");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 via-indigo-500 to-purple-600 flex items-center justify-center px-4">
+    <div className="min-h-screen from-blue-500 via-indigo-500 to-purple-600 flex items-center justify-center px-4">
       <div className="bg-white/90 backdrop-blur-sm rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center">
         <h1 className="text-3xl font-extrabold text-gray-800 mb-2">
-          Razorpay Payment
+          Cashfree Payment Gateway
         </h1>
         <p className="text-gray-500 mb-6 text-sm">
-          Enter amount and pay securely using Razorpay
+          Enter an amount and pay securely in Sandbox mode
         </p>
 
         <input
@@ -89,7 +82,8 @@ export default function Home() {
         </button>
 
         <p className="text-xs text-gray-400 mt-4">
-          Powered by <span className="text-blue-600 font-semibold">Razorpay</span>
+          Powered by{" "}
+          <span className="text-blue-600 font-semibold">Cashfree</span>
         </p>
       </div>
     </div>

@@ -1,23 +1,39 @@
-import { NextResponse } from "next/server";
-import crypto from "crypto";
+import axios from "axios";
 
-export async function POST(request) {
+export async function POST(req) {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = await request.json();
+    const { orderId } = await req.json();
 
-    const sign = razorpay_order_id + "|" + razorpay_payment_id;
-    const expectedSign = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(sign)
-      .digest("hex");
+    if (!orderId) {
+      return new Response(JSON.stringify({ message: "Missing orderId" }), { status: 400 });
+    }
 
-    if (razorpay_signature === expectedSign) {
-      return NextResponse.json({ success: true, message: "Payment verified successfully" });
+    const response = await axios.get(`https://sandbox.cashfree.com/pg/orders/${orderId}`, {
+      headers: {
+        "x-api-version": "2022-09-01",
+        "x-client-id": process.env.CASHFREE_CLIENT_ID,
+        "x-client-secret": process.env.CASHFREE_SECRET_KEY,
+      },
+    });
+
+    const orderStatus = response.data?.order_status;
+
+    if (orderStatus === "PAID") {
+      return new Response(JSON.stringify({ verified: true, message: "✅ Payment Verified Successfully" }), { status: 200 });
     } else {
-      return NextResponse.json({ success: false, message: "Invalid signature" }, { status: 400 });
+      return new Response(
+        JSON.stringify({ verified: false, message: `⚠️ Payment not completed (${orderStatus})` }),
+        { status: 200 }
+      );
     }
   } catch (error) {
-    console.error("Verification failed:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("Verification Error:", error.response?.data || error.message);
+    return new Response(
+      JSON.stringify({
+        message: "Verification failed",
+        error: error.response?.data || error.message,
+      }),
+      { status: 500 }
+    );
   }
 }
